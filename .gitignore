@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+.python-version
+theoretical-findings/
+# Jupyter
+.ipynb_checkpoints/
+
+# ML artifacts — checkpoints and model weights
+checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+
+# Experiment tracking
+wandb/
+runs/
+outputs/
+papers/
+# Triton / CUDA cache
+.triton/
+triton_cache/
+
+# Experiment outputs (generated; keep configs and preregistered/ docs)
+experiments/logs/
+experiments/figures/
+experiments/180m_bakeoff/
+experiments/350m_crucible/
+
+# Dataset shards (large binary, pre-sharded to local NVMe)
+data/
+*.bin
+*.npy
+*.npz
+*.arrow
+*.parquet
+
+# Profiling
+*.nsys-rep
+*.qdrep
+nsys_output/
+
+# Paper build artifacts
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.pdf
+paper/*.synctex.gz
+paper/_build/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+CLAUDE.md 
+skills.md
+
+# Secrets / env
+.env
+.env.*
+secrets.json

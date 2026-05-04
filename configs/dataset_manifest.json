@@ -1,0 +1,19 @@
+{
+  "_comment": "Canonical dataset specification for all norm-free Mamba-3 ablation runs. Fields are frozen before any 350M experiment starts. Changing these fields invalidates comparisons.",
+  "dataset_name": "FineWebEdu",
+  "source": "HuggingFace: HuggingFaceFW/fineweb-edu",
+  "tokenizer": "gpt2",
+  "tokenizer_vocab_size": 50257,
+  "sequence_length": 2048,
+  "token_count": 20000000000,
+  "seed": 42,
+  "shard_format": "pre-tokenized .bin shards, stored on local NVMe",
+  "pad_vocab_size_multiple": 16,
+  "padded_vocab_size": 50272,
+  "notes": {
+    "why_20B": "60x Chinchilla-optimal at 350M. Deliberate overtraining to expose stability differences between BCNorm and element-wise replacements.",
+    "why_seed_fixed": "Reproducibility across variants. Never regenerate shards — use seed-fixed copy.",
+    "why_gpt2_tokenizer": "Matches Mamba-3 paper evaluation setup for HellaSwag/ARC/WinoGrande/PIQA zero-shot benchmarks.",
+    "why_seqlen_2048": "Standard LM context length. chunk_size=64 divides 2048 evenly (32 chunks)."
+  }
+}
