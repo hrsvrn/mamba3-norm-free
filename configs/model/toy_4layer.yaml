@@ -1,0 +1,14 @@
+# Toy model config for smoke / debug training.
+# Matches the defaults in scripts/train_smoke.py.
+#
+# This is NOT used for the 180M bake-off — see configs/experiments/ for that.
+
+model:
+  d_model: 128
+  n_layer: 4
+  d_state: 64
+  headdim: 32
+  chunk_size: 32
+  vocab_size: 512
+  use_mimo: false
+  expand: 2

@@ -11,7 +11,7 @@ What this script does:
   6. Runs three sanity checks: shape consistency, NaN/Inf guard, forward reproducibility.
 
 Run from the repo root:
-  python src/probe_bc.py
+  python -m nfmamba.diagnostics.probe_bc
 """
 
 import json
@@ -23,7 +23,7 @@ from pathlib import Path
 import torch
 
 # ── resolve imports ────────────────────────────────────────────────────────────
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "mamba3-minimal"))
 from mamba3 import Mamba3Config, Mamba3LMHeadModel, create_toy_model, get_device  # noqa: E402
 

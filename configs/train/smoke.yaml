@@ -1,0 +1,12 @@
+# Smoke training hyperparameters.
+# Used by scripts/train_smoke.py for forward+backward verification.
+# Tiny model + synthetic random tokens — no real data needed.
+
+train:
+  seqlen: 128
+  batch_size: 2
+  steps: 200
+  lr: 1.0e-3
+  weight_decay: 0.01
+  optimizer: adamw
+  mixed_precision: none  # smoke runs in fp32 for maximum numerical safety

@@ -1,0 +1,35 @@
+# Smoke / debug dataset config.
+# The frozen 350M run uses configs/data/finewebedu_350m_manifest.json.
+# This file drives the small reproducible build for plumbing tests and overfit checks.
+
+dataset:
+  id: wikitext_smoke           # used in output filenames and manifest
+  source: wikitext             # HuggingFace `datasets` repo
+  source_config: wikitext-2-raw-v1
+  splits:                      # map logical -> HF split name
+    train: train
+    val: validation
+  text_column: text
+
+tokenizer:
+  name: gpt2                   # HF tokenizer id
+  add_eos_per_doc: true        # append EOS after each non-empty doc
+
+packing:
+  sequence_length: 2048
+  strategy: eos                # docs separated by EOS, then chunked
+  drop_last: true              # drop tail tokens that don't fill a full seq
+
+determinism:
+  seed: 42
+  shuffle_documents: false     # never shuffle unless explicit
+  shuffle_sequences: false
+
+output:
+  processed_dir: data/processed
+  manifest_dir: data/manifests
+  debug_dir: data/debug
+  bin_dtype: uint16            # GPT-2 vocab is 50257 < 65536, so uint16 is safe
+
+debug:
+  num_sequences: 50            # tiny shard for overfit / dataloader tests

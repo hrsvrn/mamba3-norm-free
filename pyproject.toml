@@ -1,7 +1,22 @@
 [project]
 name = "mamba-norm-free"
 version = "0.1.0"
-description = "Add your description here"
+description = "Normalization-free Mamba-3 ablation research infrastructure"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "datasets>=4.0.0",
+    "einops>=0.8.0",
+    "numpy>=2.0.0",
+    "pyyaml>=6.0.0",
+    "tiktoken>=0.11.0",
+    "torch>=2.5.0",
+    "transformers>=4.50.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

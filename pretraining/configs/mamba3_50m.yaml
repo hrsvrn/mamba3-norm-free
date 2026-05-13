@@ -1,0 +1,129 @@
+# =============================================================================
+# Mamba-3 50M parameter pretraining recipe
+# Target: 1B tokens of FineWebEdu, single H100 (or DDP-ready)
+# =============================================================================
+# Param accounting (vocab=50264, tied embeddings):
+#   embedding   : 25.7M   (tied to lm_head)
+#   16 x mixer  : 26.8M   (in_proj + out_proj + B/C-norm + biases + D)
+#   block norms : 0.02M
+#   final norm  : 0.0005M
+#   total       : ~52.5M
+# =============================================================================
+
+run:
+  name: mamba3_50m_finewebedu_1B
+  out_dir: runs                # checkpoints + logs land in ${out_dir}/${name}
+  seed: 42
+  log_every: 20
+  eval_every: 500              # set 0 to disable held-out eval
+  save_every: 1000
+  wandb_project: nfmamba-baselines
+  wandb_mode: online           # online | offline | disabled
+
+model:
+  arch: mamba3                 # references mamba_ssm.modules.mamba3.Mamba3
+  n_layers: 16
+  d_model: 512
+  d_state: 64
+  expand: 2
+  head_dim: 64
+  ngroups: 1                   # number of B/C groups (1 == shared B/C)
+  d_intermediate: 0            # 0 = pure SSM stack (no MLP). Set to 2048 for SwiGLU.
+  vocab_size: 50257            # GPT-2 BPE; padded up internally
+  pad_vocab_multiple: 8        # vocab is padded to a multiple of this
+  tie_embeddings: true
+  rms_norm: true               # block-level pre-norm
+  residual_in_fp32: true
+  fused_add_norm: true
+  norm_epsilon: 1.0e-5
+  initializer_range: 0.02
+
+# These flags document the *architectural identity* of Mamba-3. The official
+# Mamba-3 module hardcodes most of them; the YAML keeps them visible so the
+# ablation framework can later swap in normalization-free variants.
+architecture:
+  exponential_trapezoidal: true   # 2nd-order discretization (always on in Mamba3)
+  complex_ssm: true               # data-dependent RoPE on B/C
+  rope_fraction: 0.5              # share of d_state covered by RoPE; 0.5 or 1.0
+  bcnorm: true                    # RMSNormGated on B and C (the target of this repo's ablation)
+  bc_bias: true                   # learnable head-channel B/C bias
+  short_conv: false               # Mamba-3 removes the short conv
+  is_outproj_norm: false          # extra post-SSM RMSNormGated
+  is_mimo: false                  # SISO when mimo_rank == 1
+  mimo_rank: 1                    # 1 = SISO. Use >1 to invoke the TileLang MIMO kernels.
+
+kernels:
+  chunk_size: 128                 # SISO recommended: 64. 128 lets us amortize per-chunk overhead.
+  use_triton_siso: true           # uses mamba_ssm.ops.triton.mamba3.mamba3_siso_combined
+  use_cute_step: false            # CuteDSL decode kernel — training never invokes it
+
+optimizer:
+  type: AdamW
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  weight_decay: 0.1
+  grad_clip: 1.0
+  fused: true                     # fused AdamW on CUDA
+
+lr:
+  peak: 3.0e-4
+  min: 3.0e-5
+  warmup_steps: 5000
+  schedule: cosine                # cosine | linear | constant
+
+training:
+  total_tokens: 1_000_000_000     # 1B token budget
+  batch_tokens: 524_288           # 512K tokens per global step
+  seq_len: 2048
+  micro_batch_size: 8             # per-GPU. global_batch = batch_tokens / seq_len = 256
+  precision: bf16                 # bf16 | fp32 | fp16
+  tf32: true                      # fp32 matmuls use TF32 accumulators
+  compile: false                  # torch.compile — set true once kernel parity confirmed
+  gradient_checkpointing: false
+
+data:
+  source: HuggingFaceFW/fineweb-edu
+  source_config: sample-10BT       # 10BT sample shard; we only consume ~1B
+  split: train
+  text_column: text
+  streaming: true                  # avoids materializing 10BT to disk
+  tokenizer: gpt2                  # tiktoken GPT-2 (50257 base vocab)
+  add_eos: true
+  num_workers: 4
+  prefetch_buffer: 8192            # tokenized-doc buffer between workers and packer
+  shuffle_buffer: 10000
+
+distributed:
+  backend: nccl
+  fsdp: false                      # single H100 by default; flip to true on multi-GPU
+  fsdp_sharding: full              # full | grad_op | hybrid
+  activation_checkpoint_every: 0   # 0 = off
+
+# -----------------------------------------------------------------------------
+# BCNorm probes — wired into pretraining/probes.py
+# -----------------------------------------------------------------------------
+# Captures pre/post BCNorm activation statistics (moments, kurtosis, percentiles,
+# tail mass, norm-ratio) plus learnable-parameter drift (norm scale, B/C bias)
+# and gradient flow. The probe is gated: it fires on exactly one micro-batch
+# per `log_every` interval, so overhead is bounded.
+probes:
+  enabled: true
+  log_every: 50                    # how often to push scalar stats to wandb (in train steps)
+  hist_every: 200                  # how often to push wandb.Histogram for activations / weights / grads
+  depth_plot_every: 200            # how often to push depth-profile line_series charts
+  print_table_every: 200           # console table; 0 to disable
+  dump_raw_every: 1000             # 0 to disable. Saves a small slice of raw pre/post tensors for offline analysis.
+  dump_dir: probes                 # relative to run dir; full pre/post tensors land here
+  hist_subsample: 10000            # max values per histogram (subsampled, fast to ship)
+  track_grads: true                # log ‖∇w‖ on norm scales and B/C biases
+
+# -----------------------------------------------------------------------------
+# Weights & Biases — extra knobs beyond run.wandb_project / run.wandb_mode
+# -----------------------------------------------------------------------------
+wandb:
+  watch_model: true                # call wandb.watch(model, log='all', log_freq=...)
+  watch_log_freq: 200              # how often wandb.watch dumps full-model param/grad histograms
+  watch_log: all                   # gradients | parameters | all
+  log_system_metrics: true         # GPU mem, tok/s, samples/s, step time
+  save_checkpoints_as_artifacts: true
+  tags: [baseline, mamba3, 50m, finewebedu, 1B]

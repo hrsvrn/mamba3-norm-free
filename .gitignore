@@ -6,6 +6,7 @@ __pycache__/
 *.so
 *.egg
 *.egg-info/
+**/*.egg-info/
 dist/
 build/
 wheels/
@@ -14,13 +15,14 @@ wheels/
 .venv/
 venv/
 env/
-
+experiments/
 # uv
 .python-version
 theoretical-findings/
+notion_docs/
 # Jupyter
 .ipynb_checkpoints/
-
+docs/
 # ML artifacts — checkpoints and model weights
 checkpoints/
 *.ckpt
@@ -44,7 +46,7 @@ experiments/180m_bakeoff/
 experiments/350m_crucible/
 
 # Dataset shards (large binary, pre-sharded to local NVMe)
-data/
+/data/
 *.bin
 *.npy
 *.npz
