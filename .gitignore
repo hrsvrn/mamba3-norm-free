@@ -20,6 +20,8 @@ experiments/
 .python-version
 theoretical-findings/
 notion_docs/
+
+
 # Jupyter
 .ipynb_checkpoints/
 docs/
