@@ -1,0 +1,111 @@
+# =============================================================================
+# Mamba-3 50M throughput benchmark
+# Runs ~100 optimizer steps (52.4M tokens) with eval/save/probes disabled so
+# the wandb tok/s and step-time numbers reflect raw kernel + dataloader speed.
+# Use this to validate the H200 estimate before committing to the full 1B run.
+# =============================================================================
+
+run:
+  name: mamba3_50m_bench
+  out_dir: runs
+  seed: 42
+  log_every: 10
+  eval_every: 0                  # disabled for bench
+  save_every: 0                  # disabled for bench
+  wandb_project: nfmamba-baselines
+  wandb_mode: disabled           # no network during throughput test
+
+model:
+  arch: mamba3
+  n_layers: 16
+  d_model: 512
+  d_state: 64
+  expand: 2
+  head_dim: 64
+  ngroups: 1
+  d_intermediate: 0
+  vocab_size: 50257
+  pad_vocab_multiple: 8
+  tie_embeddings: true
+  rms_norm: true
+  residual_in_fp32: true
+  fused_add_norm: true
+  norm_epsilon: 1.0e-5
+  initializer_range: 0.02
+
+architecture:
+  exponential_trapezoidal: true
+  complex_ssm: true
+  rope_fraction: 0.5
+  bcnorm: true
+  bc_bias: true
+  short_conv: false
+  is_outproj_norm: false
+  is_mimo: false
+  mimo_rank: 1
+
+kernels:
+  chunk_size: 128
+  use_triton_siso: true
+  use_cute_step: false
+
+optimizer:
+  type: AdamW
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  weight_decay: 0.1
+  grad_clip: 1.0
+  fused: true
+
+lr:
+  peak: 3.0e-4
+  min: 3.0e-5
+  warmup_steps: 5000             # we never reach warmup; LR stays low — fine for throughput
+  schedule: cosine
+
+training:
+  total_tokens: 52_428_800       # 100 steps × 524_288 tokens/step
+  batch_tokens: 524_288
+  seq_len: 2048
+  micro_batch_size: 8
+  precision: bf16
+  tf32: true
+  compile: false
+  gradient_checkpointing: false
+
+data:
+  source: HuggingFaceFW/fineweb-edu
+  source_config: sample-10BT
+  split: train
+  text_column: text
+  streaming: true
+  tokenizer: gpt2
+  add_eos: true
+  num_workers: 4
+  prefetch_buffer: 8192
+  shuffle_buffer: 10000
+
+distributed:
+  backend: nccl
+  fsdp: false
+  fsdp_sharding: full
+  activation_checkpoint_every: 0
+
+probes:
+  enabled: false                 # skip probe overhead during throughput test
+  log_every: 50
+  hist_every: 200
+  depth_plot_every: 200
+  print_table_every: 0
+  dump_raw_every: 0
+  dump_dir: probes
+  hist_subsample: 10000
+  track_grads: false
+
+wandb:
+  watch_model: false
+  watch_log_freq: 200
+  watch_log: all
+  log_system_metrics: false
+  save_checkpoints_as_artifacts: false
+  tags: [bench, mamba3, 50m]
