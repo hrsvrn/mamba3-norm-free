@@ -66,9 +66,9 @@ optimizer:
   fused: true                     # fused AdamW on CUDA
 
 lr:
-  peak: 3.0e-4
-  min: 3.0e-5
-  warmup_steps: 5000
+  peak: 6.0e-4                    # higher peak now that the schedule actually decays
+  min: 6.0e-5
+  warmup_steps: 200               # ~10% of 1907 total steps (1B / 524_288)
   schedule: cosine                # cosine | linear | constant
 
 training:
