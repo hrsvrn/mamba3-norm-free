@@ -170,6 +170,7 @@ def main():
             dump_dir=out_dir_for_probe,
             dump_every=probe_cfg.get("dump_raw_every", 0),
             hist_subsample=probe_cfg.get("hist_subsample", 10000),
+            per_layer_keys=probe_cfg.get("per_layer_keys"),
         )
         probe.attach(model)
 
@@ -332,6 +333,12 @@ def main():
             and probe_cfg.get("depth_plot_every", 0) > 0
             and step % probe_cfg["depth_plot_every"] == 0
         )
+        scatter_this_step = (
+            probe_this_step
+            and probe_cfg.get("scatter_every", 0) > 0
+            and step % probe_cfg["scatter_every"] == 0
+            and bool(probe_cfg.get("scatter_layers"))
+        )
         dump_this_step = (
             probe_this_step
             and probe_cfg.get("dump_raw_every", 0) > 0
@@ -339,7 +346,9 @@ def main():
         )
         if dump_this_step:
             probe.request_dump()
-        if hist_this_step:
+        # The pre/post paired samples are shared between histograms and scatters;
+        # request them once if either is firing this step.
+        if hist_this_step or scatter_this_step:
             probe.request_histograms()
         # The "sample" micro-step (we use the last one so gradient is fully populated).
         sample_micro = grad_accum - 1
@@ -382,6 +391,9 @@ def main():
                 step,
                 log_histograms=hist_this_step,
                 log_depth_plots=depth_plot_this_step,
+                scatter_layers=(
+                    probe_cfg.get("scatter_layers") if scatter_this_step else None
+                ),
             )
             if (
                 probe_cfg.get("print_table_every", 0) > 0

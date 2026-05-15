@@ -40,6 +40,39 @@ _PERCENTILES = (0.5, 0.9, 0.99, 0.999)
 # fall outside ±k·σ" — proxy for how heavy the tail is that BCNorm has to absorb.
 _TAIL_SIGMAS = (3.0, 6.0, 12.0)
 
+# Default per-layer stats emitted to wandb. The probe computes ~25 stats per
+# (layer, B|C) site internally; logging all of them to wandb means ~1,250
+# scalar series, which clutters the UI. This curated set keeps the load-bearing
+# signals (gate-closure, outlier emergence, heavy tails, weight drift, gradient
+# flow) and drops redundant variants. Override via `per_layer_keys=` on the
+# probe constructor or `probes.per_layer_keys` in YAML.
+#
+# Bias stats use a "bias/" prefix to distinguish from BCNorm weight stats:
+#   bias/drift_from_1 → |B_bias - 1.0|.mean()
+#   bias/std          → B_bias.std()
+#   bias/grad_norm    → ‖∂L/∂B_bias‖
+_DEFAULT_PER_LAYER_KEYS: frozenset[str] = frozenset({
+    # Distribution shape — width + heavy tail + outliers
+    "pre/std",
+    "pre/kurtosis",
+    "pre/frac_above_6sigma",
+    # Gate behavior — the load-bearing thesis signal
+    "post/std",
+    # Overall rescaling factor
+    "delta/norm_ratio_mean",
+    # Is the stabilizer's learnable parameter(s) actually learning? Parameter
+    # names vary by variant — one entry per known name across the registry so
+    # the default keep set works whether `B_norm` is BCNorm, DyT, Derf,
+    # DyISRU, DySoftSign, or DyPowerSign.
+    "weight_grad_norm",       # BCNorm (RMSNormGated)
+    "alpha_grad_norm",        # DyT, Derf, DySoftSign, DyPowerSign
+    "log_alpha_grad_norm",    # DyISRU
+    "log_beta_grad_norm",     # DySoftSign, DyPowerSign
+    "s_grad_norm",            # Derf
+    # Is the B/C bias actually learning?
+    "bias/drift_from_1",
+})
+
 
 @torch.no_grad()
 def _subsample(x: torch.Tensor, n: int) -> torch.Tensor:
@@ -48,6 +81,28 @@ def _subsample(x: torch.Tensor, n: int) -> torch.Tensor:
         return x
     idx = torch.randint(0, x.numel(), (n,), device=x.device)
     return x[idx]
+
+
+@torch.no_grad()
+def _paired_subsample(
+    pre: torch.Tensor, post: torch.Tensor, n: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Subsample pre/post in lock-step using ONE shared index set.
+
+    Required for reproducing the DyT-paper-style scatter (Fig. 1/2) where the
+    x-axis is the pre-norm input and the y-axis is the post-norm output at the
+    SAME scalar position. Independently sampling pre and post would destroy the
+    pairing and turn the curve into a random cloud.
+    """
+    pre_flat = pre.flatten()
+    post_flat = post.flatten()
+    if pre_flat.numel() != post_flat.numel():
+        m = min(pre_flat.numel(), post_flat.numel(), n)
+        return pre_flat[:m], post_flat[:m]
+    if pre_flat.numel() <= n:
+        return pre_flat, post_flat
+    idx = torch.randint(0, pre_flat.numel(), (n,), device=pre_flat.device)
+    return pre_flat[idx], post_flat[idx]
 
 
 @torch.no_grad()
@@ -134,11 +189,16 @@ class BCNormProbe:
         dump_dir: Path | None = None,
         dump_every: int = 0,
         hist_subsample: int = 10_000,
+        per_layer_keys: Iterable[str] | None = None,
     ):
         self.enabled = False
         self.dump_dir = Path(dump_dir) if dump_dir is not None else None
         self.dump_every = dump_every
         self.hist_subsample = hist_subsample
+        self.per_layer_keys = (
+            frozenset(per_layer_keys) if per_layer_keys is not None
+            else _DEFAULT_PER_LAYER_KEYS
+        )
         self._dump_pending = False
         self._hist_pending = False
         self._dump_buffer: list[dict] = []
@@ -178,10 +238,16 @@ class BCNormProbe:
             stats = _compute_stats(pre, post)
             self._buffer[(layer_idx, tag)].append(stats)
             if self._hist_pending:
-                # Subsample flat values for histogram shipping — keeps wandb payload small.
+                # Paired subsample: same index set on pre & post so the values
+                # at index i correspond to the same scalar position. Needed for
+                # the DyT-style (pre, post) scatter; the 1D histograms work
+                # equally well on paired data.
+                pre_s, post_s = _paired_subsample(
+                    pre.float(), post.float(), self.hist_subsample
+                )
                 self._hist_buffer[(layer_idx, tag)] = {
-                    "pre": _subsample(pre.float().flatten(), self.hist_subsample).cpu(),
-                    "post": _subsample(post.float().flatten(), self.hist_subsample).cpu(),
+                    "pre": pre_s.cpu(),
+                    "post": post_s.cpu(),
                 }
             if self._dump_pending:
                 # Hold onto a small slice of the raw tensors for offline analysis.
@@ -220,7 +286,14 @@ class BCNormProbe:
         self._hist_pending = True
 
     # --------------------------------------------------------------- Flush
-    def flush(self, wb, step: int, log_histograms: bool = False, log_depth_plots: bool = False) -> dict[str, float]:
+    def flush(
+        self,
+        wb,
+        step: int,
+        log_histograms: bool = False,
+        log_depth_plots: bool = False,
+        scatter_layers: Iterable[int] | None = None,
+    ) -> dict[str, float]:
         """Average buffered stats, log to wandb, and return a plain-Python dict.
 
         Args:
@@ -229,29 +302,48 @@ class BCNormProbe:
             log_histograms: if True, also flush wandb.Histogram payloads
                             (requires `request_histograms()` to have been set before forward)
             log_depth_plots: if True, also push wandb.plot.line_series depth-profile charts
+            scatter_layers: if non-empty, also push wandb.plot.scatter "pre→post"
+                            BCNorm-curve plots for these layer indices (requires
+                            `request_histograms()` to have been set before forward).
+                            Reproduces the DyT-paper-style input/output S-curve.
         """
         out: dict[str, float] = {}
+
+        keep = self.per_layer_keys
 
         # --- activation stats ----
         for (layer, tag), stats_list in self._buffer.items():
             if not stats_list:
                 continue
-            avg: dict[str, torch.Tensor] = {}
             for k in stats_list[0]:
-                avg[k] = torch.stack([s[k] for s in stats_list]).mean()
-            for k, v in avg.items():
+                if k not in keep:
+                    continue
+                v = torch.stack([s[k] for s in stats_list]).mean()
                 out[f"bcnorm/L{layer:02d}/{tag}/{k}"] = float(v.item())
 
-        # --- learnable parameters: norm scale + B/C bias ----
+        # --- learnable parameters: stabilizer scale(s) + B/C bias ----
+        # Iterate whatever top-level Parameters the bound module exposes, so
+        # the same probe works for BCNorm (`weight`), DySoftSign (`alpha`,
+        # `log_beta`), DyT (`alpha`), DyISRU (`log_alpha`), Derf (`alpha`,
+        # `s`), DyPowerSign (`alpha`, `log_beta`), or any future variant.
+        # Note: read `p.grad` from the Parameter directly — `p.detach().grad`
+        # is always None because detach() produces a non-leaf tensor.
         for (layer, tag), mod in self._modules.items():
-            w = mod.weight.detach().float()
-            out[f"bcnorm/L{layer:02d}/{tag}/weight_mean"] = float(w.mean().item())
-            out[f"bcnorm/L{layer:02d}/{tag}/weight_std"] = float(w.std().item())
-            out[f"bcnorm/L{layer:02d}/{tag}/weight_max_abs"] = float(w.abs().max().item())
-            if w.grad is not None:
-                g = w.grad.detach().float()
-                out[f"bcnorm/L{layer:02d}/{tag}/weight_grad_norm"] = float(g.norm().item())
-                out[f"bcnorm/L{layer:02d}/{tag}/weight_grad_max_abs"] = float(g.abs().max().item())
+            for pname, p in mod.named_parameters(recurse=False):
+                pf = p.detach().float()
+                pstats: dict[str, torch.Tensor] = {
+                    f"{pname}_mean": pf.mean(),
+                    f"{pname}_max_abs": pf.abs().max(),
+                }
+                if pf.numel() > 1:
+                    pstats[f"{pname}_std"] = pf.std()
+                if p.grad is not None:
+                    g = p.grad.detach().float()
+                    pstats[f"{pname}_grad_norm"] = g.norm()
+                    pstats[f"{pname}_grad_max_abs"] = g.abs().max()
+                for k, v in pstats.items():
+                    if k in keep:
+                        out[f"bcnorm/L{layer:02d}/{tag}/{k}"] = float(v.item())
 
         for layer_idx, mixer in self._mixers:
             for bias_name in ("B_bias", "C_bias"):
@@ -259,14 +351,18 @@ class BCNormProbe:
                 if p is None:
                     continue
                 pf = p.detach().float()
-                out[f"bcnorm/L{layer_idx:02d}/{bias_name}/mean"] = float(pf.mean().item())
-                out[f"bcnorm/L{layer_idx:02d}/{bias_name}/std"] = float(pf.std().item())
-                out[f"bcnorm/L{layer_idx:02d}/{bias_name}/max_abs"] = float(pf.abs().max().item())
-                # Drift from init (which is 1.0 for B/C bias).
-                out[f"bcnorm/L{layer_idx:02d}/{bias_name}/drift_from_1"] = float((pf - 1.0).abs().mean().item())
+                bias_stats: dict[str, torch.Tensor] = {
+                    "mean": pf.mean(),
+                    "std": pf.std(),
+                    "max_abs": pf.abs().max(),
+                    # Drift from init (which is 1.0 for B/C bias).
+                    "drift_from_1": (pf - 1.0).abs().mean(),
+                }
                 if p.grad is not None:
-                    gf = p.grad.detach().float()
-                    out[f"bcnorm/L{layer_idx:02d}/{bias_name}/grad_norm"] = float(gf.norm().item())
+                    bias_stats["grad_norm"] = p.grad.detach().float().norm()
+                for k, v in bias_stats.items():
+                    if f"bias/{k}" in keep:
+                        out[f"bcnorm/L{layer_idx:02d}/{bias_name}/{k}"] = float(v.item())
 
         # --- depth-level aggregates (across layers, for quick wandb panels) ----
         out.update(self._summarize_across_depth(out))
@@ -288,13 +384,28 @@ class BCNormProbe:
                             )
                         except Exception:
                             pass
-                # Norm weights
+                # Stabilizer parameters — introspect so the histogram block
+                # works for BCNorm (`weight`) and element-wise variants
+                # (`alpha`, `log_beta`, `s`, `log_alpha`, ...) alike.
                 for (layer, tag), mod in self._modules.items():
-                    w = mod.weight.detach().float().cpu().numpy()
-                    hist_payload[f"bcnorm_hist/L{layer:02d}/{tag}/weight"] = _wb.Histogram(w, num_bins=64)
-                    if mod.weight.grad is not None:
-                        g = mod.weight.grad.detach().float().cpu().numpy()
-                        hist_payload[f"bcnorm_hist/L{layer:02d}/{tag}/weight_grad"] = _wb.Histogram(g, num_bins=64)
+                    for pname, p in mod.named_parameters(recurse=False):
+                        if p.numel() == 0:
+                            continue
+                        wf = p.detach().float().cpu().numpy().ravel()
+                        try:
+                            hist_payload[
+                                f"bcnorm_hist/L{layer:02d}/{tag}/{pname}"
+                            ] = _wb.Histogram(wf, num_bins=64)
+                        except Exception:
+                            pass
+                        if p.grad is not None:
+                            gf = p.grad.detach().float().cpu().numpy().ravel()
+                            try:
+                                hist_payload[
+                                    f"bcnorm_hist/L{layer:02d}/{tag}/{pname}_grad"
+                                ] = _wb.Histogram(gf, num_bins=64)
+                            except Exception:
+                                pass
                 # Biases
                 for layer_idx, mixer in self._mixers:
                     for bias_name in ("B_bias", "C_bias", "dt_bias", "D"):
@@ -312,8 +423,13 @@ class BCNormProbe:
         if log_depth_plots and wb is not None:
             depth_plots = self._build_depth_plots(out, step)
 
-        if wb is not None and (out or hist_payload or depth_plots):
-            merged = {**out, **hist_payload, **depth_plots}
+        # --- DyT-style pre→post scatter (the BCNorm input/output curve) ----
+        scatter_plots: dict[str, object] = {}
+        if scatter_layers and wb is not None:
+            scatter_plots = self._build_scatter_plots(step, scatter_layers)
+
+        if wb is not None and (out or hist_payload or depth_plots or scatter_plots):
+            merged = {**out, **hist_payload, **depth_plots, **scatter_plots}
             wb.log(merged, step=step)
 
         # --- handle pending raw-tensor dump ----
@@ -324,9 +440,10 @@ class BCNormProbe:
                 {
                     "step": step,
                     "records": self._dump_buffer,
-                    "norm_weights": {
-                        f"L{l:02d}/{t}": m.weight.detach().cpu().clone()
+                    "stabilizer_params": {
+                        f"L{l:02d}/{t}/{pname}": p.detach().cpu().clone()
                         for (l, t), m in self._modules.items()
+                        for pname, p in m.named_parameters(recurse=False)
                     },
                     "biases": {
                         f"L{l:02d}/{name}": getattr(m, name).detach().cpu().clone()
@@ -342,7 +459,9 @@ class BCNormProbe:
             self._dump_pending = False
 
         self._buffer.clear()
-        if log_histograms:
+        # Clear paired-sample buffer if EITHER histograms OR scatters consumed it
+        # (both share the same buffer since they need the same paired data).
+        if log_histograms or scatter_layers:
             self._hist_buffer.clear()
             self._hist_pending = False
         return out
@@ -390,6 +509,55 @@ class BCNormProbe:
                     xname="layer",
                 )
                 plots[f"depth/{suffix.replace('/', '_')}"] = plot
+            except Exception:
+                pass
+        return plots
+
+    # ------------------------------------------------ BCNorm input/output curve
+    def _build_scatter_plots(self, step: int, layers: Iterable[int]) -> dict[str, object]:
+        """wandb.plot.scatter of (pre-norm input, post-norm output) per layer.
+
+        Reproduces the figure that motivates the DyT family: BCNorm's input→output
+        relationship across many tokens forms an S-curve, suggesting an
+        elementwise squash (DyT/Derf/DyISRU/DyPower) can replace the global
+        reduction. After training, each ablation can be compared against the
+        BCNorm baseline by overlaying these scatters at matched layers/steps.
+
+        Uses paired (pre, post) samples from `_hist_buffer` — must have called
+        `request_histograms()` before the forward pass that populated it.
+        """
+        try:
+            import wandb as _wb  # noqa
+        except ImportError:
+            return {}
+
+        layer_set = set(layers)
+        plots: dict[str, object] = {}
+        # wandb scatter gets sluggish past ~2000 points per panel. Stride down
+        # if the paired sample was bigger.
+        max_points = 2000
+        for (layer, tag), bufs in self._hist_buffer.items():
+            if layer not in layer_set:
+                continue
+            if "pre" not in bufs or "post" not in bufs:
+                continue
+            pre = bufs["pre"]
+            post = bufs["post"]
+            if pre.numel() == 0 or pre.numel() != post.numel():
+                continue
+            if pre.numel() > max_points:
+                stride = max(1, pre.numel() // max_points)
+                pre = pre[::stride][:max_points]
+                post = post[::stride][:max_points]
+            data = list(zip(pre.tolist(), post.tolist()))
+            try:
+                table = _wb.Table(data=data, columns=["pre", "post"])
+                plots[f"bcnorm_curve/L{layer:02d}/{tag}"] = _wb.plot.scatter(
+                    table,
+                    "pre",
+                    "post",
+                    title=f"BCNorm L{layer:02d}/{tag} input→output (step {step})",
+                )
             except Exception:
                 pass
         return plots

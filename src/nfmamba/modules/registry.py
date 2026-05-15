@@ -7,6 +7,7 @@ from torch import nn
 from .derf import Derf
 from .dypower import DyPowerSign
 from .dyisru import DyISRU
+from .dysoftsign import DySoftSign
 from .dyt import DyT
 from .identity import IdentityStabilizer
 from .rmsnorm import ExternalRMSNorm
@@ -26,6 +27,8 @@ def make_stabilizer(name: str, d: int, *, device=None, **kwargs) -> nn.Module:
         return DyPowerSign(d, device=device, **kwargs)
     if name == "dyisru":
         return DyISRU(d, device=device)
+    if name in {"dysoftsign", "dysign", "softsign"}:
+        return DySoftSign(d, device=device, **kwargs)
     if name == "dyt":
         return DyT(d, device=device)
     raise ValueError(f"Unsupported B/C stabilizer: {name}")

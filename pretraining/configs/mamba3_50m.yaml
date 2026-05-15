@@ -116,6 +116,24 @@ probes:
   dump_dir: probes                 # relative to run dir; full pre/post tensors land here
   hist_subsample: 10000            # max values per histogram (subsampled, fast to ship)
   track_grads: true                # log ‖∇w‖ on norm scales and B/C biases
+  # Per-layer wandb scalars. Set to `null` to use the curated lean default
+  # (~270 total scalars: 7 stats × 32 BCNorm sites + 1 bias stat × 32 bias
+  # sites + auto-derived depth aggregates). Provide a list to override; provide
+  # an empty list `[]` to log only depth-aggregates (~30 scalars). The default
+  # keeps the thesis-critical signals only:
+  #   pre/std, pre/kurtosis, pre/frac_above_6sigma   (distribution + tails + outliers)
+  #   post/std, delta/norm_ratio_mean                (gate closure + rescaling)
+  #   weight_grad_norm                               (is BCNorm scale learning?)
+  #   bias/drift_from_1                              (is B/C bias learning?)
+  per_layer_keys: null
+  # BCNorm input→output scatter plots (DyT-paper Fig. 1/2 style).
+  # For each layer in `scatter_layers`, push a wandb.plot.scatter every
+  # `scatter_every` steps with paired (pre, post) samples. This is the figure
+  # the thesis ablations should overlay variant-vs-baseline. Subsampled to
+  # ~2000 points per panel; uses the same paired buffer as histograms (no
+  # extra forward cost). Set scatter_every: 0 to disable.
+  scatter_every: 500
+  scatter_layers: [0, 4, 7, 11, 15]
 
 # -----------------------------------------------------------------------------
 # Weights & Biases — extra knobs beyond run.wandb_project / run.wandb_mode

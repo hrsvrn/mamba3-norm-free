@@ -204,7 +204,14 @@ class Mamba3LM(nn.Module):
 
 
 def build_model_from_config(cfg: dict, device=None, dtype=None) -> Mamba3LM:
-    """Translate a parsed YAML config into a Mamba3LM."""
+    """Translate a parsed YAML config into a Mamba3LM.
+
+    If ``architecture.bc_stabilizer`` is present and not ``"bcnorm"``, the
+    stock RMSNormGated B/C normalizers are swapped out for the named
+    element-wise stabilizer (DySoftSign, DyT, DyISRU, Derf, ...). The swap
+    happens *after* model construction so the rest of the mixer (in_proj,
+    biases, RoPE, SSD kernel) is bit-identical to the BCNorm baseline.
+    """
     m = cfg["model"]
     a = cfg["architecture"]
     k = cfg["kernels"]
@@ -221,7 +228,7 @@ def build_model_from_config(cfg: dict, device=None, dtype=None) -> Mamba3LM:
         chunk_size=k["chunk_size"],
     )
 
-    return Mamba3LM(
+    model = Mamba3LM(
         d_model=m["d_model"],
         n_layer=m["n_layers"],
         d_intermediate=m["d_intermediate"],
@@ -237,3 +244,30 @@ def build_model_from_config(cfg: dict, device=None, dtype=None) -> Mamba3LM:
         device=device,
         dtype=dtype,
     )
+
+    stabilizer = str(a.get("bc_stabilizer", "bcnorm")).lower()
+    if stabilizer != "bcnorm":
+        if str(_REPO_ROOT / "src") not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT / "src"))
+        from nfmamba.adapters.bc_stabilizer import install_bc_stabilizer
+
+        report = install_bc_stabilizer(
+            model,
+            name=stabilizer,
+            stabilize_b=bool(a.get("stabilize_b", True)),
+            stabilize_c=bool(a.get("stabilize_c", True)),
+            squash_before_bias=bool(a.get("squash_before_bias", False)),
+        )
+        print(
+            f"[model] BC stabilizer = {report.name!r} "
+            f"(replaced={report.replaced}, B={report.stabilize_b}, C={report.stabilize_c}, "
+            f"squash_before_bias={report.squash_before_bias})",
+            flush=True,
+        )
+
+        if dtype is not None:
+            model.to(dtype=dtype)
+        if device is not None:
+            model.to(device=device)
+
+    return model
