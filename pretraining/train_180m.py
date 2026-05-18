@@ -506,6 +506,29 @@ def main():
     last_log_tokens = tokens_seen
     loss_accum = 0.0
 
+    log(rank, f"[rank 0] entering training loop ({total_steps - start_step} steps to go)")
+    log(rank, f"[rank 0] step 0 may take 2-5 min: Triton kernels autotune on first call, "
+              f"and the FineWeb-Edu stream needs to fetch its first shard.")
+
+    # First-batch timing: the most common "silent hang" point is the very first
+    # `next(data_iter)`, which kicks off the HF dataset stream + the worker pool.
+    log(rank, "[rank 0] pre-fetching first micro-batch ...")
+    _prefetch_t0 = time.time()
+    try:
+        _first_batch = next(data_iter)
+    except StopIteration:
+        data_iter = iter(loader)
+        _first_batch = next(data_iter)
+    log(rank, f"[rank 0] first micro-batch ready in {time.time()-_prefetch_t0:.1f}s "
+              f"(shape={tuple(_first_batch.shape)}, dtype={_first_batch.dtype})")
+    # Re-prime the iterator so the train loop's first `next()` sees this batch.
+    import itertools
+    data_iter = itertools.chain([_first_batch], data_iter)
+
+    # Print every step for the first 10 steps -- gives immediate feedback that
+    # the loop is alive without spamming the log for the full 19073-step run.
+    early_log_until = start_step + 10
+
     for step in range(start_step, total_steps):
         step_t0 = time.time()
         lr = schedule_fn(
@@ -604,7 +627,12 @@ def main():
         tokens_seen += train["batch_tokens"]
         step_secs = time.time() - step_t0
 
-        if step % cfg["run"]["log_every"] == 0 and is_main(rank):
+        # Force a log on every step until `early_log_until` so first-loop progress is visible.
+        log_now = (
+            step % cfg["run"]["log_every"] == 0
+            or step < early_log_until
+        )
+        if log_now and is_main(rank):
             now = time.time()
             tok_per_sec = (tokens_seen - last_log_tokens) / max(1e-6, now - last_log_t)
             last_log_t = now
