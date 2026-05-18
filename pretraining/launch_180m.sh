@@ -39,11 +39,38 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-${REPO_ROOT}/.triton_cache}"
 mkdir -p "${TRITON_CACHE_DIR}"
 
+# Resolve the Python interpreter. Prefer the project's uv-managed venv (this
+# repo uses pyproject.toml + uv.lock). Override with PYTHON=<path> if needed.
+if [ -z "${PYTHON:-}" ]; then
+    if [ -x "${REPO_ROOT}/.venv/bin/python" ]; then
+        PYTHON="${REPO_ROOT}/.venv/bin/python"
+    elif command -v uv >/dev/null 2>&1; then
+        PYTHON="uv run --no-sync python"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON="python"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON="python3"
+    else
+        echo "ERROR: no python interpreter found (set PYTHON=... or run 'uv sync' first)" >&2
+        exit 1
+    fi
+fi
+# Same logic for torchrun: prefer venv binary, else `uv run torchrun`.
+if [ -z "${TORCHRUN:-}" ]; then
+    if [ -x "${REPO_ROOT}/.venv/bin/torchrun" ]; then
+        TORCHRUN="${REPO_ROOT}/.venv/bin/torchrun"
+    elif command -v uv >/dev/null 2>&1; then
+        TORCHRUN="uv run --no-sync torchrun"
+    else
+        TORCHRUN="torchrun"
+    fi
+fi
+
 # Llama-3.1 tokenizer is gated -- download it ahead of time to fail fast if the
 # token doesn't have access, rather than discovering it mid-run.
 if [ -n "${HF_TOKEN:-}" ]; then
     echo "==> warming Llama-3.1 tokenizer cache"
-    python - <<'PY'
+    ${PYTHON} - <<'PY'
 import os
 from transformers import AutoTokenizer
 AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B", token=os.environ.get("HF_TOKEN"))
@@ -54,14 +81,14 @@ fi
 echo "==> repo:    ${REPO_ROOT}"
 echo "==> config:  ${CONFIG}"
 echo "==> nproc:   ${NPROC}"
-echo "==> python:  $(which python)"
+echo "==> python:  ${PYTHON}"
 echo "==> HF repo: ${HF_REPO_ID:-<auto from whoami + run name>}"
-python -c "import torch; print(f'==> torch:   {torch.__version__}  cuda={torch.cuda.is_available()}  n_gpu={torch.cuda.device_count()}')"
+${PYTHON} -c "import torch; print(f'==> torch:   {torch.__version__}  cuda={torch.cuda.is_available()}  n_gpu={torch.cuda.device_count()}')"
 
 if [ "${NPROC}" = "1" ]; then
-    exec python pretraining/train_180m.py --config "${CONFIG}"
+    exec ${PYTHON} pretraining/train_180m.py --config "${CONFIG}"
 else
-    exec torchrun \
+    exec ${TORCHRUN} \
         --standalone \
         --nproc_per_node="${NPROC}" \
         --master_port="${MASTER_PORT}" \
