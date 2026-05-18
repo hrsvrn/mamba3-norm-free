@@ -36,14 +36,50 @@ class _Llama3TokenizerAdapter:
     `PackedFineWebEdu` expects: `.encode_ordinary(text) -> list[int]` and
     `.eot_token: int`. Llama-3 lacks a single EOS BPE token equivalent to
     GPT-2's <|endoftext|>; we use the model's defined `eos_token_id`
-    (`<|end_of_text|>`, id 128001 for Llama-3.1)."""
+    (`<|end_of_text|>`, id 128001 for Llama-3.1).
 
-    def __init__(self, model_id: str = "meta-llama/Llama-3.1-8B"):
+    The Llama-3 / 3.1 / 3.2 tokenizers are byte-identical (same 128256 BPE
+    vocab), so any of their HF repos serves as a valid source. We default
+    to a public mirror because the official `meta-llama/*` repos are gated
+    and many HF accounts can't access them. Override the default with
+    `HF_LLAMA3_TOKENIZER_ID=<repo>` to use a different mirror.
+    """
+
+    _CANDIDATES = (
+        # Honor env var first.
+        os.environ.get("HF_LLAMA3_TOKENIZER_ID"),
+        # Public mirror -- byte-identical tokenizer to meta-llama/Llama-3.1-8B.
+        "NousResearch/Meta-Llama-3.1-8B",
+        # Secondary fallback (Llama-3.2 uses the same 128256 vocab).
+        "unsloth/Llama-3.2-1B",
+        # Official, gated -- only resolves if your HF account has access.
+        "meta-llama/Llama-3.1-8B",
+    )
+
+    def __init__(self, model_id: str | None = None):
         from transformers import AutoTokenizer
 
-        self._tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+        candidates = [model_id] if model_id else [c for c in self._CANDIDATES if c]
+        last_err = None
+        for candidate in candidates:
+            try:
+                self._tok = AutoTokenizer.from_pretrained(
+                    candidate,
+                    use_fast=True,
+                    token=os.environ.get("HF_TOKEN"),
+                )
+                self.model_id = candidate
+                break
+            except Exception as e:
+                last_err = e
+                continue
+        else:
+            raise RuntimeError(
+                "Could not load a Llama-3 tokenizer from any candidate "
+                f"({candidates}). Last error: {last_err}"
+            )
         if self._tok.eos_token_id is None:
-            raise RuntimeError(f"{model_id} tokenizer has no eos_token_id")
+            raise RuntimeError(f"{self.model_id} tokenizer has no eos_token_id")
         self.eot_token = int(self._tok.eos_token_id)
 
     def encode_ordinary(self, text: str) -> list[int]:
@@ -56,7 +92,7 @@ def _get_tokenizer(name: str):
     if name == "gpt2":
         return tiktoken.get_encoding("gpt2")
     if name == "llama3":
-        return _Llama3TokenizerAdapter("meta-llama/Llama-3.1-8B")
+        return _Llama3TokenizerAdapter()
     raise ValueError(f"Unknown tokenizer: {name}")
 
 

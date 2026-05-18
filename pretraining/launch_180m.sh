@@ -66,17 +66,18 @@ if [ -z "${TORCHRUN:-}" ]; then
     fi
 fi
 
-# Llama-3.1 tokenizer is gated -- download it ahead of time to fail fast if the
-# token doesn't have access, rather than discovering it mid-run.
-if [ -n "${HF_TOKEN:-}" ]; then
-    echo "==> warming Llama-3.1 tokenizer cache"
-    ${PYTHON} - <<'PY'
-import os
-from transformers import AutoTokenizer
-AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B", token=os.environ.get("HF_TOKEN"))
-print("    tokenizer OK")
+# Llama-3.1 tokenizer: byte-identical across meta-llama / NousResearch / unsloth
+# mirrors. The official meta-llama repos are gated; we warm the cache here via
+# the same fallback chain `data._Llama3TokenizerAdapter` uses, so any auth or
+# network failure surfaces before training starts (not 5 minutes in).
+echo "==> warming Llama-3.1 tokenizer cache"
+${PYTHON} - <<'PY'
+import sys
+sys.path.insert(0, "pretraining")
+from data import _Llama3TokenizerAdapter
+tok = _Llama3TokenizerAdapter()
+print(f"    tokenizer OK ({tok.model_id}, eot={tok.eot_token})")
 PY
-fi
 
 echo "==> repo:    ${REPO_ROOT}"
 echo "==> config:  ${CONFIG}"
