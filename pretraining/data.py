@@ -31,9 +31,32 @@ class DataConfig:
     seed: int
 
 
+class _Llama3TokenizerAdapter:
+    """Adapt HF `AutoTokenizer` (Llama-3.1) to the tiktoken-ish surface that
+    `PackedFineWebEdu` expects: `.encode_ordinary(text) -> list[int]` and
+    `.eot_token: int`. Llama-3 lacks a single EOS BPE token equivalent to
+    GPT-2's <|endoftext|>; we use the model's defined `eos_token_id`
+    (`<|end_of_text|>`, id 128001 for Llama-3.1)."""
+
+    def __init__(self, model_id: str = "meta-llama/Llama-3.1-8B"):
+        from transformers import AutoTokenizer
+
+        self._tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+        if self._tok.eos_token_id is None:
+            raise RuntimeError(f"{model_id} tokenizer has no eos_token_id")
+        self.eot_token = int(self._tok.eos_token_id)
+
+    def encode_ordinary(self, text: str) -> list[int]:
+        # `add_special_tokens=False` keeps BOS/EOS out of the doc body; the
+        # packer inserts an EOS between documents itself.
+        return self._tok.encode(text, add_special_tokens=False)
+
+
 def _get_tokenizer(name: str):
     if name == "gpt2":
         return tiktoken.get_encoding("gpt2")
+    if name == "llama3":
+        return _Llama3TokenizerAdapter("meta-llama/Llama-3.1-8B")
     raise ValueError(f"Unknown tokenizer: {name}")
 
 
