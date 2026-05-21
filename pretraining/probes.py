@@ -63,11 +63,12 @@ _DEFAULT_PER_LAYER_KEYS: frozenset[str] = frozenset({
     # Is the stabilizer's learnable parameter(s) actually learning? Parameter
     # names vary by variant — one entry per known name across the registry so
     # the default keep set works whether `B_norm` is BCNorm, DyT, Derf,
-    # DyISRU, DySoftSign, or DyPowerSign.
+    # DyISRU, DySoftSign, or DyPowerP1.
     "weight_grad_norm",       # BCNorm (RMSNormGated)
-    "alpha_grad_norm",        # DyT, Derf, DySoftSign, DyPowerSign
+    "alpha_grad_norm",        # DyT, Derf, DySoftSign, DyPowerP1
     "log_alpha_grad_norm",    # DyISRU
-    "log_beta_grad_norm",     # DySoftSign, DyPowerSign
+    "log_beta_grad_norm",     # DySoftSign
+    "beta_grad_norm",         # DyPowerP1
     "s_grad_norm",            # Derf
     # Is the B/C bias actually learning?
     "bias/drift_from_1",
@@ -325,7 +326,7 @@ class BCNormProbe:
         # Iterate whatever top-level Parameters the bound module exposes, so
         # the same probe works for BCNorm (`weight`), DySoftSign (`alpha`,
         # `log_beta`), DyT (`alpha`), DyISRU (`log_alpha`), Derf (`alpha`,
-        # `s`), DyPowerSign (`alpha`, `log_beta`), or any future variant.
+        # `s`), DyPowerP1 (`alpha`, `beta`), or any future variant.
         # Note: read `p.grad` from the Parameter directly — `p.detach().grad`
         # is always None because detach() produces a non-leaf tensor.
         for (layer, tag), mod in self._modules.items():

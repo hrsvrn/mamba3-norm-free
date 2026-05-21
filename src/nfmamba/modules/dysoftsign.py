@@ -4,9 +4,8 @@ Element-wise squashing function:
 
     y = x / (beta + alpha * |x|)
 
-A learnable, per-channel softsign. Equivalent to the ``p = 1`` case of
-``DyPowerSign`` but kept as its own module for readability: the formula
-appears directly in the forward pass.
+A learnable, per-channel softsign. The formula appears directly in the
+forward pass; ``alpha`` and ``beta`` are log-parameterised for stability.
 
 Properties (cf. Chen et al. 2026 "Stronger Normalization-Free Transformers"):
     - zero-centred:   f(0) = 0

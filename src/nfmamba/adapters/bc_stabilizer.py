@@ -89,8 +89,8 @@ def install_bc_stabilizer(
         A ``Mamba3LMHeadModel`` (constructed by ``mamba3-minimal``).
     name:
         Stabilizer name recognised by ``make_stabilizer()``
-        (``"bcnorm"``, ``"dyt"``, ``"derf"``, ``"dyisru"``, ``"dypower"``,
-        ``"identity"``).
+        (``"bcnorm"``, ``"dyt"``, ``"derf"``, ``"dyisru"``, ``"dysoftsign"``,
+        ``"dypower_p1"``, ``"identity"``).
     stabilize_b:
         When ``False``, leave ``mixer.B_norm`` untouched.
     stabilize_c:

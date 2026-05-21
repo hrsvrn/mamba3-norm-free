@@ -1,0 +1,162 @@
+# =============================================================================
+# Mamba-3 180M parameter ablation: DyPowerP1 in place of BCNorm
+# Target: 10B tokens of FineWebEdu, Llama-3.1 tokenizer, single H100/H200 or DDP.
+#
+# Training recipe is IDENTICAL to mamba3_180m.yaml (BCNorm baseline) — same
+# model shape, same optimizer, same LR schedule, same data, same probes, same
+# HF Hub config. The only architectural difference is at the B/C path:
+#
+#   architecture.bcnorm: false
+#   architecture.bc_stabilizer: dypower_p1
+#
+# DyPowerP1:  y = x / (beta + alpha * |x|)
+#   - alpha, beta are per-channel plain nn.Parameter (no log-parameterisation)
+#   - alpha init = 0.0, beta init = 0.2  ->  ~5x linear gain at step 0
+#     (matches BCNorm's effective scaling on typical B/C activations)
+#   - element-wise: no global reduction -> no thread-block sync in decode
+#
+# Compare ppl/eval against mamba3_180m.yaml at matching tokens-seen + seed.
+# =============================================================================
+# Param accounting (tied embeddings, d_inner=1536, n_heads=24, ngroups=1):
+#   embedding   : 98.5M    (tied to lm_head)
+#   12 x mixer  : ~45M     (in_proj 768x3352 + out_proj 1536x768 + BCNorm/bias)
+#   12 x MLP    : ~41.5M   (SwiGLU 3 x 768 x 1500)
+#   block norms : ~0.04M
+#   final norm  : ~0.001M
+#   total       : ~185M
+# =============================================================================
+
+run:
+  name: mamba3_180m_dypower_p1_finewebedu_10B
+  out_dir: runs
+  seed: 42
+  log_every: 20
+  eval_every: 0                  # held-out eval disabled; ppl tracked via train loss
+  save_every: 1900               # ~1B tokens at batch=524288 (10B / 524288 = 19073 steps)
+  wandb_project: nfmamba-baselines
+  wandb_mode: online             # online | offline | disabled
+
+model:
+  arch: mamba3
+  n_layers: 12
+  d_model: 768
+  d_state: 128                   # Mamba-3 paper Appendix D (paper-wide default)
+  expand: 2                      # Mamba-3 paper Appendix D
+  head_dim: 64                   # Mamba-3 paper Appendix D
+  ngroups: 1
+  d_intermediate: 1500           # Mamba-3 paper Appendix C, SISO-180M MLP dim
+  vocab_size: 128256             # Llama-3.1 tokenizer
+  pad_vocab_multiple: 8
+  tie_embeddings: true
+  rms_norm: true
+  residual_in_fp32: true
+  fused_add_norm: true
+  norm_epsilon: 1.0e-5
+  initializer_range: 0.02
+
+architecture:
+  exponential_trapezoidal: true
+  complex_ssm: true
+  rope_fraction: 0.5
+  bcnorm: false                  # documents the swap; actual install is via bc_stabilizer below
+  bc_stabilizer: dypower_p1      # bcnorm | dysoftsign | dypower_p1 | dyt | dyisru | derf | identity
+  stabilize_b: true
+  stabilize_c: true
+  squash_before_bias: false      # keep paper's order: projection -> squash -> bias -> RoPE -> SSD
+  bc_bias: true
+  short_conv: false
+  is_outproj_norm: false
+  is_mimo: false
+  mimo_rank: 1
+
+kernels:
+  chunk_size: 128
+  use_triton_siso: true
+  use_cute_step: false
+
+optimizer:
+  type: AdamW
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  weight_decay: 0.1
+  grad_clip: 1.0
+  fused: true
+
+# LR schedule:
+# Peak 6e-4 is the GPT-3 125M / Mamba-2 Table 9 value -- not the 5x "improved
+# recipe" 3e-3. Rationale: the 3e-3 recipe assumes ~100B-token cosine decay; at
+# 10B tokens cosine decays 10x faster and the high peak materially raises the
+# risk of spikes/divergence. For a BCNorm-vs-stabilizer ablation we want the LR
+# to be a controlled, non-confounding variable, so we trade ~0.1 ppl of headroom
+# for a stable, reproducible run.
+lr:
+  peak: 6.0e-4
+  min: 6.0e-5
+  warmup_steps: 1000             # ~5% of 19073 total steps
+  schedule: cosine
+
+training:
+  total_tokens: 10_000_000_000   # 10B token budget
+  batch_tokens: 524_288          # 0.5M tokens per global step (Mamba-2 Table 9)
+  seq_len: 2048                  # Mamba-3 paper section 4.1
+  micro_batch_size: 4            # per-GPU. global_batch = 256 sequences -> grad_accum = 64 on 1 GPU
+  precision: bf16
+  tf32: true
+  compile: false                 # flip to true once kernel parity confirmed
+  gradient_checkpointing: false
+
+data:
+  source: HuggingFaceFW/fineweb-edu
+  source_config: sample-10BT     # 10BT shard; we consume the full ~10B
+  split: train
+  text_column: text
+  streaming: true
+  tokenizer: llama3              # Llama-3.1, vocab 128256
+  add_eos: true
+  num_workers: 4
+  prefetch_buffer: 8192
+  shuffle_buffer: 10000
+
+distributed:
+  backend: nccl
+  fsdp: false                    # single H100/H200 by default
+  fsdp_sharding: full
+  activation_checkpoint_every: 0
+
+# -----------------------------------------------------------------------------
+# Hugging Face Hub upload
+# -----------------------------------------------------------------------------
+# Pushes ${out_dir}/${name}/step_XXXXXX.pt and final.pt to a model repo on the
+# Hub. Requires HF_TOKEN in env (or `huggingface-cli login`). The repo is
+# created if it doesn't exist. Set enabled: false to disable, or override the
+# repo_id via the HF_REPO_ID env var.
+hf_hub:
+  enabled: true
+  repo_id: null                  # null -> read from $HF_REPO_ID, else "<username>/mamba3-180m-dypower_p1-finewebedu-10B"
+  private: false
+  push_every: 1900               # match save_every; set 0 to upload only the final checkpoint
+  push_intermediate: true
+  push_final: true
+  commit_message_prefix: "[mamba3-180m-dypower_p1]"
+
+probes:
+  enabled: true
+  log_every: 100                 # bump up from 50 since we have 10x more steps than 50M run
+  hist_every: 500
+  depth_plot_every: 500
+  print_table_every: 500
+  dump_raw_every: 2000
+  dump_dir: probes
+  hist_subsample: 10000
+  track_grads: true
+  per_layer_keys: null
+  scatter_every: 1000
+  scatter_layers: [0, 3, 6, 9, 11]   # 12-layer model -- pick depth quintiles
+
+wandb:
+  watch_model: true
+  watch_log_freq: 500
+  watch_log: all
+  log_system_metrics: true
+  save_checkpoints_as_artifacts: false  # using HF Hub for artifact storage instead
+  tags: [ablation, mamba3, 180m, finewebedu, 10B, llama3-tokenizer, dypower_p1, normfree]

@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "mamba3-minimal"))
 
 from mamba3 import InferenceCache, Mamba3Config, Mamba3LMHeadModel, get_device  # noqa: E402
-from nfmamba import Derf, DyISRU, DyPowerSign, DyT, ExternalRMSNorm  # noqa: E402
+from nfmamba import Derf, DyISRU, DyPowerP1, DyT, ExternalRMSNorm  # noqa: E402
 from nfmamba import IdentityStabilizer, install_bc_stabilizer  # noqa: E402
 
 DEVICE = get_device()
@@ -40,7 +40,7 @@ STAB_NAMES = [
     "dyt",
     "derf",
     "dyisru",
-    "dypower",
+    "dypower_p1",
 ]
 
 STAB_NAME_TO_CLS = {
@@ -50,7 +50,7 @@ STAB_NAME_TO_CLS = {
     "dyt": DyT,
     "derf": Derf,
     "dyisru": DyISRU,
-    "dypower": DyPowerSign,
+    "dypower_p1": DyPowerP1,
 }
 
 
@@ -300,3 +300,58 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 8. DyPowerP1 unit test
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_dypower_p1_module() -> None:
+    """DyPowerP1: shape preservation (2D and 3D), learnable params, near-linear init."""
+    from nfmamba.modules import DyPowerP1
+
+    dim = 64
+    mod = DyPowerP1(dim).to(DEVICE)
+
+    # Shape preservation: 3D (batch, seq, dim)
+    x3 = torch.randn(4, 16, dim, device=DEVICE)
+    y3 = mod(x3)
+    assert y3.shape == x3.shape, f"3D shape mismatch: {y3.shape} vs {x3.shape}"
+    assert torch.isfinite(y3).all(), "3D output contains NaN/Inf"
+
+    # Shape preservation: 2D (batch, dim)
+    x2 = torch.randn(8, dim, device=DEVICE)
+    y2 = mod(x2)
+    assert y2.shape == x2.shape, f"2D shape mismatch: {y2.shape} vs {x2.shape}"
+    assert torch.isfinite(y2).all(), "2D output contains NaN/Inf"
+
+    # Learnable parameters
+    assert isinstance(mod.alpha, nn.Parameter), "alpha is not nn.Parameter"
+    assert isinstance(mod.beta, nn.Parameter), "beta is not nn.Parameter"
+    assert mod.alpha.requires_grad, "alpha is not learnable"
+    assert mod.beta.requires_grad, "beta is not learnable"
+    assert mod.alpha.shape == (dim,), f"alpha shape {mod.alpha.shape} != ({dim},)"
+    assert mod.beta.shape == (dim,), f"beta shape {mod.beta.shape} != ({dim},)"
+
+    # Near-linear at init: y/x should be ~uniform across a random batch.
+    # alpha init = 0  =>  y = x / beta  (exactly linear, gain = 1/beta_init).
+    x = torch.randn(32, 16, dim, device=DEVICE)
+    with torch.no_grad():
+        y = mod(x)
+    ratio = (y / x).flatten()
+    finite = ratio[torch.isfinite(ratio)]
+    assert finite.numel() > 0, "no finite ratios"
+    mean_ratio = finite.mean().item()
+    std_ratio = finite.std().item()
+    # Expected gain at init: 1 / 0.2 = 5x (alpha = 0 makes it exactly linear,
+    # tiny _EPS in the denominator gives near-zero std).
+    assert 3.5 < mean_ratio < 6.0, (
+        f"init gain {mean_ratio:.3f} not in expected ~4-5x range"
+    )
+    assert std_ratio < 1e-2, (
+        f"init operator not uniform across inputs: std={std_ratio:.3e}"
+    )
+    print(
+        f"  [ok] DyPowerP1 module   — shapes 2D/3D, learnable α/β, "
+        f"init gain={mean_ratio:.3f}x (std={std_ratio:.2e})"
+    )

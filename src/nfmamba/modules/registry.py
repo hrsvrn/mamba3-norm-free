@@ -5,7 +5,7 @@ from __future__ import annotations
 from torch import nn
 
 from .derf import Derf
-from .dypower import DyPowerSign
+from .dypower_p1 import DyPowerP1
 from .dyisru import DyISRU
 from .dysoftsign import DySoftSign
 from .dyt import DyT
@@ -23,8 +23,8 @@ def make_stabilizer(name: str, d: int, *, device=None, **kwargs) -> nn.Module:
         return IdentityStabilizer()
     if name == "derf":
         return Derf(d, device=device)
-    if name == "dypower":
-        return DyPowerSign(d, device=device, **kwargs)
+    if name == "dypower_p1":
+        return DyPowerP1(d, device=device, **kwargs)
     if name == "dyisru":
         return DyISRU(d, device=device)
     if name in {"dysoftsign", "dysign", "softsign"}:

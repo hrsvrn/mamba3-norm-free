@@ -9,7 +9,7 @@ For every (layer, B/C) pair it captures the raw projected values PRE‑norm
 (x‑axis) and the corresponding values POST‑norm (y‑axis), then produces:
 
     1.  A grid of scatter plots — one subplot per (layer, B/C) pair
-    2.  Overlaid DyT / Derf / DyISRU / DyPowerSign reference curves
+    2.  Overlaid DyT / Derf / DyISRU / DyPowerP1 reference curves
     3.  Per‑layer summary bullet points (max‑abs before/after, compression)
 
 Output is saved to ``experiments/figures/bcnorm_io_shape.png``.
@@ -43,7 +43,7 @@ from mamba3 import Mamba3Config, Mamba3LMHeadModel, get_device  # noqa: E402
 from nfmamba import (  # noqa: E402
     Derf,
     DyISRU,
-    DyPowerSign,
+    DyPowerP1,
     DyT,
 )
 
@@ -80,7 +80,7 @@ FUNC_LABELS = {
     "DyT": lambda d: DyT(d, alpha_init=1.0),
     "Derf": lambda d: Derf(d, alpha_init=0.5),
     "DyISRU": lambda d: DyISRU(d, alpha_init=1.0),
-    "DyPowerSign p=2": lambda d: DyPowerSign(d, p=2.0, alpha_init=1.0, beta_init=1.0),
+    "DyPowerP1": lambda d: DyPowerP1(d, alpha_init=0.0, beta_init=0.2),
 }
 FUNC_COLORS = ["tab:orange", "tab:green", "tab:red", "tab:purple"]
 

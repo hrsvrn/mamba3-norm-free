@@ -8,8 +8,8 @@ every run gets a self‑describing manifest (git SHA, env, determinism).
 Usage::
 
     python scripts/train_micro.py --stabilizer dyisru
-    python scripts/train_micro.py --stabilizer dypower --p 1.0
-    python scripts/train_micro.py --all  # 8 variants × 2 seeds = 16 runs
+    python scripts/train_micro.py --stabilizer dypower_p1
+    python scripts/train_micro.py --all  # 7 variants × 2 seeds = 14 runs
     python scripts/train_micro.py --all --squash-before-bias
 
 The model is ~11M parameters — small enough to run on a single GPU in
@@ -440,9 +440,8 @@ STAB_VARIANTS: list[dict] = [
     {"name": "dyt"},
     {"name": "derf"},
     {"name": "dyisru"},
-    {"name": "dypower", "kwargs": {"p": 1.0}},
-    {"name": "dypower", "kwargs": {"p": 2.0}},
-    {"name": "dypower", "kwargs": {"p": 3.0}},
+    {"name": "dysoftsign"},
+    {"name": "dypower_p1"},
 ]
 
 
@@ -463,7 +462,6 @@ def main():
         description="Micro‑pretraining bake‑off on Wikitext‑2"
     )
     p.add_argument("--stabilizer", "-s", default=None)
-    p.add_argument("--p", type=float, default=None, help="p for DyPowerSign")
     p.add_argument("--all", action="store_true")
     p.add_argument("--squash-before-bias", action="store_true")
     p.add_argument("--seeds", action="store_true",
@@ -503,9 +501,7 @@ def main():
                 )
                 results.append((f"{label} (s={seed})", result))
     elif args.stabilizer:
-        kwargs = {}
-        if args.p is not None:
-            kwargs["p"] = args.p
+        kwargs: dict = {}
         label = args.stabilizer
         for seed in seeds:
             run_dir = Path(args.output) / f"{args.stabilizer}_{seed}"

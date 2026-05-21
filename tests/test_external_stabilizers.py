@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "mamba3-minimal"))
 
 from mamba3 import create_toy_model, get_device  # noqa: E402
-from nfmamba import Derf, DyPowerSign, DyISRU, DyT, ExternalRMSNorm, IdentityStabilizer, install_bc_stabilizer  # noqa: E402
+from nfmamba import Derf, DyPowerP1, DyISRU, DyT, ExternalRMSNorm, IdentityStabilizer, install_bc_stabilizer  # noqa: E402
 
 
 DEVICE = get_device()
@@ -41,7 +41,7 @@ def test_install_known_stabilizers():
         "bcnorm": ExternalRMSNorm,
         "identity": IdentityStabilizer,
         "derf": Derf,
-        "dypower": DyPowerSign,
+        "dypower_p1": DyPowerP1,
         "dyisru": DyISRU,
         "dyt": DyT,
     }
@@ -70,7 +70,7 @@ def test_external_rmsnorm_matches_reference_at_init():
 
 def test_variants_forward_backward_smoke():
     tokens = torch.randint(0, TOY_KW["vocab_size"], (2, 32), device=DEVICE)
-    for name in ("identity", "derf", "dypower", "dyisru", "dyt"):
+    for name in ("identity", "derf", "dypower_p1", "dyisru", "dyt"):
         model = make_model(seed=789)
         install_bc_stabilizer(model, name)
 

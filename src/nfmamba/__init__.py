@@ -5,11 +5,19 @@ Use these helpers to adapt a constructed reference model for ablations.
 """
 
 from .adapters import InstallReport, PreBiasStabilizer, install_bc_stabilizer
-from .modules import Derf, DyPowerSign, DyISRU, DyT, ExternalRMSNorm, IdentityStabilizer, make_stabilizer
+from .modules import (
+    Derf,
+    DyISRU,
+    DyPowerP1,
+    DyT,
+    ExternalRMSNorm,
+    IdentityStabilizer,
+    make_stabilizer,
+)
 
 __all__ = [
     "Derf",
-    "DyPowerSign",
+    "DyPowerP1",
     "DyISRU",
     "DyT",
     "ExternalRMSNorm",

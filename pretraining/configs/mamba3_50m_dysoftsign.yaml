@@ -47,7 +47,7 @@ architecture:
   complex_ssm: true
   rope_fraction: 0.5
   bcnorm: false                   # documents the swap; actual install is via bc_stabilizer below
-  bc_stabilizer: dysoftsign       # bcnorm | dysoftsign | dyt | dyisru | derf | dypower | identity
+  bc_stabilizer: dysoftsign       # bcnorm | dysoftsign | dypower_p1 | dyt | dyisru | derf | identity
   stabilize_b: true
   stabilize_c: true
   squash_before_bias: false       # keep paper's order: projection -> squash -> bias -> RoPE -> SSD

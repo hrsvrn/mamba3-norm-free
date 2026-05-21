@@ -8,7 +8,7 @@ tracked by the manifest + JSONL logging infrastructure.
 Usage::
 
     python scripts/train_smoke.py --stabilizer dyisru
-    python scripts/train_smoke.py --stabilizer dypower --p 1.0
+    python scripts/train_smoke.py --stabilizer dypower_p1
     python scripts/train_smoke.py --stabilizer derf --squash-before-bias
     python scripts/train_smoke.py --all  # smoke every registered variant
 """
@@ -64,9 +64,8 @@ ALL_STABILIZERS: list[dict] = [
     {"name": "dyt"},
     {"name": "derf"},
     {"name": "dyisru"},
-    {"name": "dypower", "kwargs": {"p": 1.0}},
-    {"name": "dypower", "kwargs": {"p": 2.0}},
-    {"name": "dypower", "kwargs": {"p": 3.0}},
+    {"name": "dysoftsign"},
+    {"name": "dypower_p1"},
 ]
 
 
@@ -277,7 +276,6 @@ def _label(d: dict) -> str:
 def main() -> None:
     p = argparse.ArgumentParser(description="Smoke-test BC stabilizer variants")
     p.add_argument("--stabilizer", "-s", default=None, help="Single stabilizer name")
-    p.add_argument("--p", type=float, default=None, help="p value for DyPowerSign")
     p.add_argument("--all", action="store_true", help="Run all known stabilizers")
     p.add_argument("--squash-before-bias", action="store_true")
     p.add_argument("--stabilize-b", dest="stabilize_b", action="store_true", default=True)
@@ -309,9 +307,7 @@ def main() -> None:
         print("Need --stabilizer NAME or --all")
         sys.exit(1)
     else:
-        kwargs = {}
-        if args.p is not None:
-            kwargs["p"] = args.p
+        kwargs: dict = {}
         result = run_one(
             stabilizer=args.stabilizer,
             stabilizer_kwargs=kwargs,

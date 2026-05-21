@@ -1,7 +1,7 @@
 """PyTorch reference stabilizers for B/C projection ablations."""
 
 from .derf import Derf
-from .dypower import DyPowerSign
+from .dypower_p1 import DyPowerP1
 from .dyisru import DyISRU
 from .dysoftsign import DySoftSign
 from .dyt import DyT
@@ -11,7 +11,7 @@ from .rmsnorm import ExternalRMSNorm
 
 __all__ = [
     "Derf",
-    "DyPowerSign",
+    "DyPowerP1",
     "DyISRU",
     "DySoftSign",
     "DyT",
