@@ -525,9 +525,10 @@ def main():
     import itertools
     data_iter = itertools.chain([_first_batch], data_iter)
 
-    # Print every step for the first 10 steps -- gives immediate feedback that
-    # the loop is alive without spamming the log for the full 19073-step run.
-    early_log_until = start_step + 10
+    # Print every step until the first regular log_every cadence kicks in, so
+    # the output is contiguous (steps 0..log_every all printed, then drops to
+    # the normal every-Nth cadence with no gap at the boundary).
+    early_log_until = start_step + cfg["run"]["log_every"]
 
     for step in range(start_step, total_steps):
         step_t0 = time.time()
