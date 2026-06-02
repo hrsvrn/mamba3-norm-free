@@ -1,6 +1,6 @@
 # =============================================================================
 # Mamba-3 50M parameter ablation: DySoftSign in place of BCNorm
-# Target: 1B tokens of FineWebEdu, single H100 (or DDP-ready)
+# Target: 1B tokens of FineWebEdu, single RTX PRO 6000 Blackwell (96GB VRAM)
 #
 # Architecture identical to mamba3_50m.yaml (BCNorm baseline) except:
 #   architecture.bc_stabilizer: dysoftsign
@@ -47,7 +47,7 @@ architecture:
   complex_ssm: true
   rope_fraction: 0.5
   bcnorm: false                   # documents the swap; actual install is via bc_stabilizer below
-  bc_stabilizer: dysoftsign       # bcnorm | dysoftsign | dypower_p1 | dyt | dyisru | derf | identity
+  bc_stabilizer: dysoftsign       # bcnorm | dysoftsign | dypower_p1 | dyt | dyisru | dylinear | identity
   stabilize_b: true
   stabilize_c: true
   squash_before_bias: false       # keep paper's order: projection -> squash -> bias -> RoPE -> SSD
@@ -94,7 +94,7 @@ data:
   streaming: true
   tokenizer: gpt2
   add_eos: true
-  num_workers: 4
+  num_workers: 12                # 28 vCPU host, single GPU — leaves headroom for trainer + system
   prefetch_buffer: 8192
   shuffle_buffer: 10000
 

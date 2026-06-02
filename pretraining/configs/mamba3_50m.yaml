@@ -1,6 +1,6 @@
 # =============================================================================
 # Mamba-3 50M parameter pretraining recipe
-# Target: 1B tokens of FineWebEdu, single H100 (or DDP-ready)
+# Target: 1B tokens of FineWebEdu, single RTX PRO 6000 Blackwell (96GB VRAM)
 # =============================================================================
 # Param accounting (vocab=50264, tied embeddings):
 #   embedding   : 25.7M   (tied to lm_head)
@@ -89,13 +89,13 @@ data:
   streaming: true                  # avoids materializing 10BT to disk
   tokenizer: gpt2                  # tiktoken GPT-2 (50257 base vocab)
   add_eos: true
-  num_workers: 4
+  num_workers: 12                  # 28 vCPU host, single GPU — leaves headroom for trainer + system
   prefetch_buffer: 8192            # tokenized-doc buffer between workers and packer
   shuffle_buffer: 10000
 
 distributed:
   backend: nccl
-  fsdp: false                      # single H100 by default; flip to true on multi-GPU
+  fsdp: false                      # single GPU (RTX PRO 6000 Blackwell, 96GB) — no sharding needed
   fsdp_sharding: full              # full | grad_op | hybrid
   activation_checkpoint_every: 0   # 0 = off
 

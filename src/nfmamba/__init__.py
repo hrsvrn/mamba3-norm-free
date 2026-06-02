@@ -6,8 +6,8 @@ Use these helpers to adapt a constructed reference model for ablations.
 
 from .adapters import InstallReport, PreBiasStabilizer, install_bc_stabilizer
 from .modules import (
-    Derf,
     DyISRU,
+    DyLinear,
     DyPowerP1,
     DyT,
     ExternalRMSNorm,
@@ -16,7 +16,7 @@ from .modules import (
 )
 
 __all__ = [
-    "Derf",
+    "DyLinear",
     "DyPowerP1",
     "DyISRU",
     "DyT",

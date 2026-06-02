@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Cluster launcher for the 180M Mamba-3 FineWebEdu 10B-token pretraining run.
+# Launcher for the 180M Mamba-3 FineWebEdu 10B-token pretraining run.
+# Default target: 1× RTX PRO 6000 Blackwell (96GB VRAM, 28 vCPU, 160GB RAM).
 #
 # Usage:
-#   bash pretraining/launch_180m.sh                         # 1 GPU
-#   NPROC=8 bash pretraining/launch_180m.sh                 # 8-GPU DDP/FSDP
+#   bash pretraining/launch_180m.sh                         # 1 GPU (default)
+#   NPROC=N bash pretraining/launch_180m.sh                 # N-GPU DDP/FSDP (multi-GPU hosts only)
 #   CONFIG=path/to/other.yaml bash pretraining/launch_180m.sh
 #
 # Hugging Face Hub upload requires:
@@ -17,8 +18,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=192G
+#SBATCH --cpus-per-task=28
+#SBATCH --mem=160G
 #SBATCH --time=72:00:00
 #SBATCH --output=runs/slurm-%j.out
 

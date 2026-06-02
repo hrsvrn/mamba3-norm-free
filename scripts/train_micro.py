@@ -438,10 +438,10 @@ STAB_VARIANTS: list[dict] = [
     {"name": "identity"},
     {"name": "bcnorm"},
     {"name": "dyt"},
-    {"name": "derf"},
     {"name": "dyisru"},
     {"name": "dysoftsign"},
     {"name": "dypower_p1"},
+    {"name": "dylinear"},
 ]
 
 

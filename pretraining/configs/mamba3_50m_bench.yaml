@@ -2,7 +2,7 @@
 # Mamba-3 50M throughput benchmark
 # Runs ~100 optimizer steps (52.4M tokens) with eval/save/probes disabled so
 # the wandb tok/s and step-time numbers reflect raw kernel + dataloader speed.
-# Use this to validate the H200 estimate before committing to the full 1B run.
+# Use this to validate the RTX PRO 6000 Blackwell estimate before committing to the full 1B run.
 # =============================================================================
 
 run:
@@ -81,7 +81,7 @@ data:
   streaming: true
   tokenizer: gpt2
   add_eos: true
-  num_workers: 4
+  num_workers: 12                # 28 vCPU host, single GPU — leaves headroom for trainer + system
   prefetch_buffer: 8192
   shuffle_buffer: 10000
 

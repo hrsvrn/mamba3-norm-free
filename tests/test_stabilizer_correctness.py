@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "mamba3-minimal"))
 
 from mamba3 import InferenceCache, Mamba3Config, Mamba3LMHeadModel, get_device  # noqa: E402
-from nfmamba import Derf, DyISRU, DyPowerP1, DyT, ExternalRMSNorm  # noqa: E402
+from nfmamba import DyISRU, DyPowerP1, DyT, ExternalRMSNorm  # noqa: E402
 from nfmamba import IdentityStabilizer, install_bc_stabilizer  # noqa: E402
 
 DEVICE = get_device()
@@ -38,7 +38,6 @@ STAB_NAMES = [
     "identity",
     "bcnorm",
     "dyt",
-    "derf",
     "dyisru",
     "dypower_p1",
 ]
@@ -48,7 +47,6 @@ STAB_NAME_TO_CLS = {
     "bcnorm": ExternalRMSNorm,
     "identity": IdentityStabilizer,
     "dyt": DyT,
-    "derf": Derf,
     "dyisru": DyISRU,
     "dypower_p1": DyPowerP1,
 }

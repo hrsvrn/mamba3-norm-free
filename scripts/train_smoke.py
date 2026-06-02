@@ -9,7 +9,7 @@ Usage::
 
     python scripts/train_smoke.py --stabilizer dyisru
     python scripts/train_smoke.py --stabilizer dypower_p1
-    python scripts/train_smoke.py --stabilizer derf --squash-before-bias
+    python scripts/train_smoke.py --stabilizer dylinear
     python scripts/train_smoke.py --all  # smoke every registered variant
 """
 
@@ -62,10 +62,10 @@ ALL_STABILIZERS: list[dict] = [
     {"name": "identity"},
     {"name": "bcnorm"},
     {"name": "dyt"},
-    {"name": "derf"},
     {"name": "dyisru"},
     {"name": "dysoftsign"},
     {"name": "dypower_p1"},
+    {"name": "dylinear"},
 ]
 
 

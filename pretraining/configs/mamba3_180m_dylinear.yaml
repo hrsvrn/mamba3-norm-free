@@ -1,5 +1,5 @@
 # =============================================================================
-# Mamba-3 180M parameter ablation: DyPowerP1 in place of BCNorm
+# Mamba-3 180M parameter ablation: DyLinear in place of BCNorm
 # Target: 10B tokens of FineWebEdu, Llama-3.1 tokenizer, single RTX PRO 6000 Blackwell (96GB VRAM).
 #
 # Training recipe is IDENTICAL to mamba3_180m.yaml (BCNorm baseline) — same
@@ -7,13 +7,19 @@
 # HF Hub config. The only architectural difference is at the B/C path:
 #
 #   architecture.bcnorm: false
-#   architecture.bc_stabilizer: dypower_p1
+#   architecture.bc_stabilizer: dylinear
 #
-# DyPowerP1:  y = x / (beta + alpha * |x|)
-#   - alpha, beta are per-channel plain nn.Parameter (no log-parameterisation)
-#   - alpha init = 0.0, beta init = 0.2  ->  ~5x linear gain at step 0
-#     (matches BCNorm's effective scaling on typical B/C activations)
+# DyLinear:  y = alpha * x
+#   - alpha is per-channel plain nn.Parameter (no log-parameterisation)
+#   - alpha init = 1.0  ->  exactly y = x at step 0 (identity)
+#   - purely linear: removes the *only* nonlinearity at the B/C slot
 #   - element-wise: no global reduction -> no thread-block sync in decode
+#
+# This is the control variant for the squashing thesis. If DyLinear matches
+# DyT/DyISRU/DyPowerP1 on ppl/eval, the saturation was never load-bearing
+# and a learned channel gain alone suffices to replace BCNorm. If it diverges
+# above 1.3B params while squashing variants stay stable, that pins the role
+# of saturation in keeping B/C activations bounded (cf. Jamba report).
 #
 # Compare ppl/eval against mamba3_180m.yaml at matching tokens-seen + seed.
 # =============================================================================
@@ -27,7 +33,7 @@
 # =============================================================================
 
 run:
-  name: mamba3_180m_dypower_p1_finewebedu_10B
+  name: mamba3_180m_dylinear_finewebedu_10B
   out_dir: runs
   seed: 42
   log_every: 20
@@ -59,7 +65,7 @@ architecture:
   complex_ssm: true
   rope_fraction: 0.5
   bcnorm: false                  # documents the swap; actual install is via bc_stabilizer below
-  bc_stabilizer: dypower_p1      # bcnorm | dysoftsign | dypower_p1 | dyt | dyisru | dylinear | identity
+  bc_stabilizer: dylinear        # bcnorm | dylinear | dysoftsign | dypower_p1 | dyt | dyisru | identity
   stabilize_b: true
   stabilize_c: true
   squash_before_bias: false      # keep paper's order: projection -> squash -> bias -> RoPE -> SSD
@@ -132,12 +138,12 @@ distributed:
 # repo_id via the HF_REPO_ID env var.
 hf_hub:
   enabled: true
-  repo_id: null                  # null -> read from $HF_REPO_ID, else "<username>/mamba3-180m-dypower_p1-finewebedu-10B"
+  repo_id: null                  # null -> read from $HF_REPO_ID, else "<username>/mamba3-180m-dylinear-finewebedu-10B"
   private: false
   push_every: 1900               # match save_every; set 0 to upload only the final checkpoint
   push_intermediate: true
   push_final: true
-  commit_message_prefix: "[mamba3-180m-dypower_p1]"
+  commit_message_prefix: "[mamba3-180m-dylinear]"
 
 probes:
   enabled: true
@@ -159,4 +165,4 @@ wandb:
   watch_log: all
   log_system_metrics: true
   save_checkpoints_as_artifacts: false  # using HF Hub for artifact storage instead
-  tags: [ablation, mamba3, 180m, finewebedu, 10B, llama3-tokenizer, dypower_p1, normfree]
+  tags: [ablation, mamba3, 180m, finewebedu, 10B, llama3-tokenizer, dylinear, normfree, control]

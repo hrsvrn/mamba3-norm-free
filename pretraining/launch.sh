@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Cluster launcher for the 50M Mamba-3 FineWebEdu pretraining run.
+# Launcher for the 50M Mamba-3 FineWebEdu pretraining run.
+# Default target: 1× RTX PRO 6000 Blackwell (96GB VRAM, 28 vCPU, 160GB RAM).
 #
 # Usage:
-#   bash pretraining/launch.sh                         # 1 GPU, default config
-#   NPROC=8 bash pretraining/launch.sh                 # 8-GPU DDP
+#   bash pretraining/launch.sh                         # 1 GPU (default)
+#   NPROC=N bash pretraining/launch.sh                 # N-GPU DDP (multi-GPU hosts only)
 #   CONFIG=pretraining/configs/mamba3_50m.yaml bash pretraining/launch.sh
 #
 # SLURM:
@@ -13,8 +14,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
+#SBATCH --cpus-per-task=28
+#SBATCH --mem=160G
 #SBATCH --time=24:00:00
 #SBATCH --output=runs/slurm-%j.out
 
@@ -30,7 +31,7 @@ MASTER_PORT="${MASTER_PORT:-29500}"
 # Make mamba-og importable without an editable install.
 export PYTHONPATH="${REPO_ROOT}/mamba-og:${PYTHONPATH:-}"
 
-# Recommended for H100 BF16 throughput.
+# NCCL flags only matter for multi-GPU; harmless on single GPU.
 export NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_NCCL_AVOID_RECORD_STREAMS=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1

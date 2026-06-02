@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from torch import nn
 
-from .derf import Derf
+from .dylinear import DyLinear
 from .dypower_p1 import DyPowerP1
 from .dyisru import DyISRU
 from .dysoftsign import DySoftSign
@@ -21,8 +21,8 @@ def make_stabilizer(name: str, d: int, *, device=None, **kwargs) -> nn.Module:
         return ExternalRMSNorm(d, device=device)
     if name == "identity":
         return IdentityStabilizer()
-    if name == "derf":
-        return Derf(d, device=device)
+    if name in {"dylinear", "linear", "scale"}:
+        return DyLinear(d, device=device, **kwargs)
     if name == "dypower_p1":
         return DyPowerP1(d, device=device, **kwargs)
     if name == "dyisru":

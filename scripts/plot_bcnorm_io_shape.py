@@ -41,7 +41,6 @@ sys.path.insert(0, str(ROOT / "mamba3-minimal"))
 
 from mamba3 import Mamba3Config, Mamba3LMHeadModel, get_device  # noqa: E402
 from nfmamba import (  # noqa: E402
-    Derf,
     DyISRU,
     DyPowerP1,
     DyT,
@@ -78,11 +77,10 @@ CFG = ProbeConfig()
 # Reference element-wise functions (initialised like our modules, no bias).
 FUNC_LABELS = {
     "DyT": lambda d: DyT(d, alpha_init=1.0),
-    "Derf": lambda d: Derf(d, alpha_init=0.5),
     "DyISRU": lambda d: DyISRU(d, alpha_init=1.0),
     "DyPowerP1": lambda d: DyPowerP1(d, alpha_init=0.0, beta_init=0.2),
 }
-FUNC_COLORS = ["tab:orange", "tab:green", "tab:red", "tab:purple"]
+FUNC_COLORS = ["tab:orange", "tab:red", "tab:purple"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────

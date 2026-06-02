@@ -1,6 +1,6 @@
 # =============================================================================
 # Mamba-3 180M parameter pretraining recipe
-# Target: 10B tokens of FineWebEdu, Llama-3.1 tokenizer, single H100/H200 or DDP.
+# Target: 10B tokens of FineWebEdu, Llama-3.1 tokenizer, single RTX PRO 6000 Blackwell (96GB VRAM).
 #
 # Shape is matched to the Mamba-2 paper Table 9 "125M" scaling-law point,
 # inflated to ~185M by swapping GPT-2 vocab (50257) for Llama-3.1 vocab (128256).
@@ -54,7 +54,7 @@ architecture:
   is_outproj_norm: false
   is_mimo: false
   mimo_rank: 1
-  # bc_stabilizer: bcnorm        # uncomment + set to dyt|derf|dyisru|dysoftsign for ablations
+  # bc_stabilizer: bcnorm        # uncomment + set to dyt|dyisru|dysoftsign|dypower_p1|dylinear for ablations
 
 kernels:
   chunk_size: 128
@@ -100,13 +100,13 @@ data:
   streaming: true
   tokenizer: llama3              # Llama-3.1, vocab 128256
   add_eos: true
-  num_workers: 4
+  num_workers: 12                # 28 vCPU host, single GPU — leaves headroom for trainer + system
   prefetch_buffer: 8192
   shuffle_buffer: 10000
 
 distributed:
   backend: nccl
-  fsdp: false                    # single H100/H200 by default
+  fsdp: false                    # single GPU (RTX PRO 6000 Blackwell, 96GB) — no sharding needed
   fsdp_sharding: full
   activation_checkpoint_every: 0
 
